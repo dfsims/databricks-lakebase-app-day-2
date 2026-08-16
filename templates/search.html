@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>News Search - Vector Similarity</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --radius: 12px;
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px;
+    }
+
+    header {
+      margin-bottom: 32px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 16px;
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    .search-box {
+      background: var(--card-bg);
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 32px;
+      box-shadow: var(--shadow);
+    }
+
+    .search-form {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .search-input-wrapper {
+      flex: 1;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 14px 18px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      font-size: 15px;
+      background: var(--bg);
+      color: var(--text);
+      transition: all 0.2s ease;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+    }
+
+    input[type="text"]::placeholder {
+      color: var(--muted);
+    }
+
+    button {
+      padding: 14px 28px;
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    button:hover { 
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 12px -2px rgba(99, 102, 241, 0.3);
+    }
+
+    button:active { transform: translateY(0); }
+    button:disabled { 
+      opacity: 0.5; 
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 12px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 2px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      padding: 16px 20px;
+      border-radius: 10px;
+      margin-bottom: 24px;
+      font-size: 14px;
+    }
+
+    .results-container {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+
+    @media (min-width: 768px) {
+      .results-container {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .results-section {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .results-section h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-top: 0;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(99, 102, 241, 0.2);
+      color: var(--accent);
+    }
+
+    .result-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      transition: all 0.2s ease;
+    }
+
+    .result-item:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+    }
+
+    .result-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+      gap: 12px;
+    }
+
+    .result-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      flex: 1;
+    }
+
+    .similarity-score {
+      background: linear-gradient(135deg, var(--success) 0%, var(--accent) 100%);
+      color: white;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .result-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .ticker-tag {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--success);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .chunk-text {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text);
+      margin-top: 10px;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      border-left: 3px solid var(--accent);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--muted);
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    .empty-state-text {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .nav-links {
+      margin-bottom: 24px;
+    }
+
+    .nav-links a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent-hover);
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="nav-links">
+      <a href="/">← Back to Watchlist</a>
+    </div>
+
+    <header>
+      <h1>🔍 News Search</h1>
+      <p class="subtitle">Search through ticker news using semantic vector similarity. Find relevant articles and chunks based on meaning, not just keywords.</p>
+    </header>
+
+    <div class="search-box">
+      <form id="search-form" class="search-form">
+        <div class="search-input-wrapper">
+          <input 
+            type="text" 
+            id="query" 
+            name="query" 
+            placeholder="What are you looking for? (e.g., 'quarterly earnings', 'product launches', 'market trends')" 
+            required
+          >
+        </div>
+        <button type="submit" id="search-btn">Search</button>
+      </form>
+    </div>
+
+    <div id="loading" class="loading" style="display: none;">
+      <span class="spinner"></span>
+      Searching...
+    </div>
+
+    <div id="error" class="error" style="display: none;"></div>
+
+    <div id="results" class="results-container" style="display: none;">
+      <div class="results-section">
+        <h2>
+          📄 Documents
+          <span class="badge" id="doc-count">0</span>
+        </h2>
+        <div id="documents-list"></div>
+      </div>
+
+      <div class="results-section">
+        <h2>
+          📝 Chunks
+          <span class="badge" id="chunk-count">0</span>
+        </h2>
+        <div id="chunks-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById("search-form");
+    const queryInput = document.getElementById("query");
+    const searchBtn = document.getElementById("search-btn");
+    const loadingEl = document.getElementById("loading");
+    const errorEl = document.getElementById("error");
+    const resultsEl = document.getElementById("results");
+    const documentsListEl = document.getElementById("documents-list");
+    const chunksListEl = document.getElementById("chunks-list");
+    const docCountEl = document.getElementById("doc-count");
+    const chunkCountEl = document.getElementById("chunk-count");
+
+    function formatDate(dateStr) {
+      if (!dateStr) return "-";
+      const date = new Date(dateStr);
+      return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+    }
+
+    function formatSimilarity(score) {
+      if (score === null || score === undefined) return "0%";
+      return (score * 100).toFixed(1) + "%";
+    }
+
+    function renderDocuments(documents) {
+      if (!documents || documents.length === 0) {
+        documentsListEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">📭</div>
+            <div class="empty-state-text">No documents found</div>
+          </div>
+        `;
+        return;
+      }
+
+      documentsListEl.innerHTML = documents.map(doc => `
+        <div class="result-item">
+          <div class="result-header">
+            <div class="result-title">${doc.title || "Untitled"}</div>
+            <div class="similarity-score">${formatSimilarity(doc.similarity)}</div>
+          </div>
+          <div class="result-meta">
+            <div class="meta-item">
+              <span class="ticker-tag">${doc.ticker || "N/A"}</span>
+            </div>
+            ${doc.published_utc ? `<div class="meta-item">📅 ${formatDate(doc.published_utc)}</div>` : ""}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderChunks(chunks) {
+      if (!chunks || chunks.length === 0) {
+        chunksListEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">📭</div>
+            <div class="empty-state-text">No chunks found</div>
+          </div>
+        `;
+        return;
+      }
+
+      chunksListEl.innerHTML = chunks.map(chunk => `
+        <div class="result-item">
+          <div class="result-header">
+            <div class="result-title">Chunk ${chunk.chunk_index || 0}</div>
+            <div class="similarity-score">${formatSimilarity(chunk.similarity)}</div>
+          </div>
+          <div class="result-meta">
+            <div class="meta-item">
+              <span class="ticker-tag">${chunk.ticker || "N/A"}</span>
+            </div>
+          </div>
+          <div class="chunk-text">${chunk.chunk_text || "No text available"}</div>
+        </div>
+      `).join("");
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const query = queryInput.value.trim();
+
+      if (!query) return;
+
+      // Show loading, hide error and results
+      loadingEl.style.display = "block";
+      errorEl.style.display = "none";
+      resultsEl.style.display = "none";
+      searchBtn.disabled = true;
+
+      try {
+        const resp = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, limit: 10 }),
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          throw new Error(data.error || resp.statusText);
+        }
+
+        // Hide loading, show results
+        loadingEl.style.display = "none";
+        resultsEl.style.display = "grid";
+
+        // Update counts
+        docCountEl.textContent = data.documents?.length || 0;
+        chunkCountEl.textContent = data.chunks?.length || 0;
+
+        // Render results
+        renderDocuments(data.documents);
+        renderChunks(data.chunks);
+
+      } catch (err) {
+        loadingEl.style.display = "none";
+        errorEl.style.display = "block";
+        errorEl.textContent = "Search failed: " + err.message;
+      } finally {
+        searchBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

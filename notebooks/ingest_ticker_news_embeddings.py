@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Ingest Ticker News -> Vector Embeddings (Lakebase)
 # MAGIC
@@ -357,6 +361,35 @@ conn = psycopg2.connect(
 try:
     cursor = conn.cursor()
     
+    # Create table if it doesn't exist
+    create_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {NEWS_TABLE_NAME} (
+        id TEXT PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        author TEXT,
+        article_url TEXT,
+        publisher_name TEXT,
+        keywords JSONB,
+        sentiment TEXT,
+        sentiment_reasoning TEXT,
+        published_utc TIMESTAMPTZ,
+        payload JSONB NOT NULL,
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    """
+    cursor.execute(create_table_sql)
+    
+    # Create index for ticker lookups
+    create_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_{NEWS_TABLE_NAME}_ticker 
+    ON {NEWS_TABLE_NAME} (ticker);
+    """
+    cursor.execute(create_index_sql)
+    conn.commit()
+    print(f"✅ Table {NEWS_TABLE_NAME} ready (created if needed)")
+    
     # Prepare data tuples for batch insert
     insert_data = [
         (
@@ -385,7 +418,7 @@ try:
         ON CONFLICT (id) DO NOTHING
     """
     
-    # executemany in psycopg3 is much faster than individual INSERTs
+    # executemany in psycopg2 is much faster than individual INSERTs
     cursor.executemany(insert_sql, insert_data)
     
     conn.commit()
@@ -531,7 +564,7 @@ embeddings_rows = embeddings_df.to_dict('records')
 if len(embeddings_rows) > 0:
     print(f"Inserting {len(embeddings_rows)} embeddings into {EMBEDDINGS_TABLE_NAME}...")
     
-    # Build connection from parsed URL
+    # Build connection using psycopg2
     conn = psycopg2.connect(
         host=db_host,
         port=db_port,
@@ -540,9 +573,25 @@ if len(embeddings_rows) > 0:
         password=db_password,
         sslmode='require'
     )
-    
+
     try:
         cursor = conn.cursor()
+        
+        # Create table if it doesn't exist
+        create_table_sql = f"""
+        CREATE TABLE IF NOT EXISTS {EMBEDDINGS_TABLE_NAME} (
+            id TEXT PRIMARY KEY,
+            ticker TEXT,
+            title TEXT,
+            published_utc TIMESTAMP,
+            embedding DOUBLE PRECISION[],
+            model_name TEXT,
+            embedded_at TIMESTAMP
+        );
+        """
+        cursor.execute(create_table_sql)
+        conn.commit()
+        print(f"✅ Table {EMBEDDINGS_TABLE_NAME} ready (created if needed)")
         
         # Prepare data tuples for batch insert
         # Format embedding as PostgreSQL array literal: '{val1,val2,...}'
@@ -727,7 +776,7 @@ import psycopg2
 from datetime import datetime
 
 # Add id (article_id_chunk_index), model_name, and embedded_at columns
-chunk_embeddings_df['id'] = chunk_embeddings_df['article_id'] + '_' + chunk_embeddings_df['chunk_index']
+chunk_embeddings_df['id'] = chunk_embeddings_df['article_id'] + '_' + chunk_embeddings_df['chunk_index'].astype(str)
 chunk_embeddings_df['model_name'] = EMBEDDING_MODEL_NAME
 chunk_embeddings_df['embedded_at'] = datetime.now()
 chunk_embeddings_df['chunk_index'] = chunk_embeddings_df['chunk_index'].astype(int)
@@ -749,6 +798,23 @@ if len(chunk_embeddings_rows) > 0:
     
     try:
         cursor = conn.cursor()
+        
+        # Create table if it doesn't exist
+        create_table_sql = f"""
+        CREATE TABLE IF NOT EXISTS {CHUNK_EMBEDDINGS_TABLE_NAME} (
+            id TEXT PRIMARY KEY,
+            article_id TEXT NOT NULL,
+            ticker TEXT,
+            chunk_index INTEGER,
+            chunk_text TEXT,
+            embedding DOUBLE PRECISION[],
+            model_name TEXT,
+            embedded_at TIMESTAMP
+        );
+        """
+        cursor.execute(create_table_sql)
+        conn.commit()
+        print(f"✅ Table {CHUNK_EMBEDDINGS_TABLE_NAME} ready (created if needed)")
         
         # Prepare data tuples for batch insert
         # Format embedding as PostgreSQL array literal: '{val1,val2,...}'

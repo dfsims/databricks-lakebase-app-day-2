@@ -29,6 +29,26 @@ _w = WorkspaceClient()
 TABLE_NAME = os.environ.get("MASSIVE_TABLE_NAME", "massive_records")
 WATCHLIST_TABLE_NAME = os.environ.get("WATCHLIST_TABLE_NAME", "watchlist")
 NEWS_TABLE_NAME = os.environ.get("NEWS_TABLE_NAME", "ticker_news_documents")
+EMBEDDINGS_TABLE_NAME = os.environ.get("EMBEDDINGS_TABLE_NAME", "ticker_news_embeddings")
+CHUNK_EMBEDDINGS_TABLE_NAME = os.environ.get("CHUNK_EMBEDDINGS_TABLE_NAME", "ticker_news_chunk_embeddings")
+
+# Databricks Foundation Model API for generating embeddings
+# Uses the same model as the ingestion notebook for consistency
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "databricks-gte-large-en")
+
+def _get_embedding(text: str) -> list[float]:
+    """Generate embedding using Databricks Foundation Model API."""
+    response = _w.serving_endpoints.query(
+        name="databricks-gte-large-en",
+        inputs={"input": [text]}
+    )
+    # Response format: {"predictions": [{"embeddings": [...]}]} or similar
+    if hasattr(response, 'predictions') and response.predictions:
+        return response.predictions[0].get('embeddings', response.predictions[0])
+    elif hasattr(response, 'data'):
+        return response.data[0].embedding
+    else:
+        raise ValueError(f"Unexpected response format: {response}")
 
 # Tickers to fetch news for by default (comma-separated), e.g. "AAPL,MSFT,GOOGL"
 DEFAULT_NEWS_TICKERS = [
@@ -404,6 +424,84 @@ def _upsert_news_batch(ticker: str, articles: list[dict]) -> int:
                 count += 1
             conn.commit()
     return count
+
+
+@app.route("/search")
+def search_page():
+    """Render the vector search UI."""
+    return render_template("search.html")
+
+
+@app.route("/api/search", methods=["POST"])
+def vector_search():
+    """
+    Vector similarity search over news documents and chunks.
+    
+    Takes a text query, generates an embedding, and returns the most similar
+    documents and chunks using cosine similarity.
+    
+    Body: {"query": "text to search", "limit": 10}
+    """
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    
+    query = request.json.get("query", "").strip()
+    if not query:
+        return jsonify({"error": "Query cannot be empty"}), 400
+    
+    limit = min(int(request.json.get("limit", 10)), 50)
+    
+    try:
+        # Generate embedding for the query using Databricks Foundation Models
+        query_embedding = _get_embedding(query)
+        
+        # Format the embedding for Postgres
+        embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+        
+        # Search document-level embeddings
+        doc_results = lakebase.run_query(
+            f"""
+            SELECT 
+                id,
+                ticker,
+                title,
+                published_utc,
+                1 - (embedding <=> %s::vector) as similarity
+            FROM {EMBEDDINGS_TABLE_NAME}
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (embedding_str, embedding_str, limit)
+        )
+        
+        # Search chunk-level embeddings
+        chunk_results = lakebase.run_query(
+            f"""
+            SELECT 
+                id,
+                article_id,
+                ticker,
+                chunk_index,
+                chunk_text,
+                1 - (embedding <=> %s::vector) as similarity
+            FROM {CHUNK_EMBEDDINGS_TABLE_NAME}
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (embedding_str, embedding_str, limit)
+        )
+        
+        return jsonify({
+            "query": query,
+            "documents": doc_results,
+            "chunks": chunk_results
+        })
+        
+    except Exception as e:
+        logger.exception("Error during vector search")
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
